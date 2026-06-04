@@ -19,11 +19,10 @@ limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Crear tablas en dev (en prod usar Alembic migrations)
-    if settings.app_env == "development":
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        await _seed_dev_data()
+    # Crear tablas siempre (idempotente — no destruye datos existentes)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    await _seed_dev_data()
     yield
     await engine.dispose()
 
