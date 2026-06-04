@@ -13,6 +13,13 @@ backend/keys/
 .env
 *.env.local
 
+# SQLite dev database
+*.db
+backend/siem_dev.db
+
+# RSA keys — NUNCA al repo
+backend/keys/
+
 # Node
 node_modules/
 dist/
