@@ -25,7 +25,11 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",")]
+        origins = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        # Siempre incluir vercel en prod para evitar problemas de variable mal copiada
+        if self.app_env == "production":
+            origins.append("https://gestor-siem.vercel.app")
+        return list(set(origins))
 
     @property
     def private_key(self) -> str:

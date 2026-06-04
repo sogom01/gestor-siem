@@ -80,10 +80,7 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Security headers
-app.add_middleware(SecurityHeadersMiddleware)
-
-# CORS
+# CORS debe ir primero (último en add_middleware = primero en ejecutarse)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
@@ -91,6 +88,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+# Security headers va después (se ejecuta antes que CORS en la cadena real)
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Routers
 app.include_router(auth.router,   prefix="/api/v1")
