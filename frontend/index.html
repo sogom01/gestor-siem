@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="SIEM-CORE — Security Information & Event Management Dashboard">
+  <title>SIEM-CORE · Security Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/src/styles/main.css">
+</head>
+<body>
+
+  <!-- ══ LOGIN OVERLAY ══ -->
+  <div id="login-overlay" class="login-overlay" role="dialog" aria-modal="true" aria-label="Inicio de sesión">
+    <div class="login-box">
+      <div class="login-logo">
+        <div class="logo-glyph">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <div>
+          <div class="logo-text">SIEM-CORE</div>
+          <div class="logo-sub">SECURITY INFORMATION & EVENT MANAGEMENT</div>
+        </div>
+      </div>
+      <form id="login-form" class="login-form" novalidate>
+        <div class="field-group">
+          <label for="login-user" class="field-label">// USUARIO</label>
+          <input id="login-user" type="text" class="field-input" autocomplete="username"
+                 placeholder="admin" aria-required="true" maxlength="64">
+        </div>
+        <div class="field-group">
+          <label for="login-pass" class="field-label">// CONTRASEÑA</label>
+          <input id="login-pass" type="password" class="field-input" autocomplete="current-password"
+                 placeholder="••••••••" aria-required="true">
+        </div>
+        <div id="login-error" class="login-error" role="alert" aria-live="polite"></div>
+        <button type="submit" class="btn-login" id="login-btn">INICIAR SESIÓN</button>
+      </form>
+      <div class="login-hint">// Demo: admin / Admin1234!</div>
+    </div>
+  </div>
+
+  <!-- ══ TOPBAR ══ -->
+  <header class="topbar" role="banner">
+    <div class="topbar-logo">
+      <div class="logo-glyph" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      </div>
+      <div>
+        <div class="logo-text">SIEM-CORE</div>
+        <div class="logo-sub">SECURITY INFORMATION & EVENT MANAGEMENT</div>
+      </div>
+    </div>
+
+    <div class="topbar-center">
+      <div class="status-pill">
+        <span class="status-dot" aria-label="Sistema activo"></span>
+        SISTEMA ACTIVO
+      </div>
+      <div class="status-pill" id="crit-pill">
+        <span class="status-dot red"></span>
+        <span id="crit-label" style="color:var(--red)">— ALERTAS CRÍTICAS</span>
+      </div>
+      <div class="topbar-clock" id="top-clock" aria-live="off">00:00:00 UTC</div>
+    </div>
+
+    <div class="topbar-right">
+      <div class="topbar-user">SESIÓN: <span id="session-user">—</span> · <span id="jwt-status">JWT válido</span></div>
+      <div class="alert-badge" id="alert-badge" aria-live="polite">⚠ — CRÍT</div>
+      <button class="btn-logout" id="btn-logout" aria-label="Cerrar sesión">LOGOUT</button>
+    </div>
+  </header>
+
+  <div class="app-body">
+  <div class="shell">
+
+    <!-- ══ SIDEBAR ══ -->
+    <aside class="sidebar" role="navigation" aria-label="Navegación principal">
+      <div class="sidebar-section">
+        <span class="sidebar-section-label">// Navegación</span>
+        <button class="nav-item active" data-view="dashboard" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Dashboard
+        </button>
+        <button class="nav-item" data-view="logs">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Log Explorer
+        </button>
+        <button class="nav-item" data-view="alerts">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Alertas
+          <span class="nav-badge" id="nav-alert-badge">—</span>
+        </button>
+        <button class="nav-item" data-view="agents">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>
+          Agentes
+          <span class="nav-badge amber" id="nav-agent-badge">—</span>
+        </button>
+      </div>
+
+      <div class="sidebar-agents" id="sidebar-agents">
+        <span class="agents-label">// AGENTES CONECTADOS</span>
+      </div>
+    </aside>
+
+    <!-- ══ MAIN ══ -->
+    <main class="main" id="main-view" role="main">
+
+      <!-- ── VISTA: DASHBOARD ── -->
+      <div id="view-dashboard">
+
+        <!-- Métricas -->
+        <div class="metrics-row" role="region" aria-label="Métricas principales">
+          <div class="metric-card">
+            <div class="metric-label">// Eventos / hora</div>
+            <div class="metric-value" id="m-ev-hour">—</div>
+            <div class="metric-sub" id="m-ev-sub">Cargando...</div>
+            <div class="sparkline" id="spark-events"></div>
+          </div>
+          <div class="metric-card danger">
+            <div class="metric-label">// Alertas críticas</div>
+            <div class="metric-value" id="m-crit">—</div>
+            <div class="metric-sub">Alertas abiertas</div>
+            <div class="sparkline" id="spark-alerts"></div>
+          </div>
+          <div class="metric-card warning">
+            <div class="metric-label">// Errores / hora</div>
+            <div class="metric-value" id="m-fail">—</div>
+            <div class="metric-sub">Umbral: 50 · Regla BR-001</div>
+            <div class="sparkline" id="spark-fail"></div>
+          </div>
+          <div class="metric-card info">
+            <div class="metric-label">// Eventos hoy</div>
+            <div class="metric-value" id="m-today">—</div>
+            <div class="metric-sub">Total acumulado</div>
+            <div class="sparkline" id="spark-today"></div>
+          </div>
+        </div>
+
+        <!-- Gráfico + Heatmap -->
+        <div class="mid-row">
+          <div class="panel-box">
+            <div class="panel-header">
+              <span class="panel-title">// Event Log Stream</span>
+              <div style="display:flex;gap:.5rem;align-items:center;">
+                <span class="panel-tag" id="log-count-tag">0 eventos</span>
+                <span class="panel-tag" style="color:var(--green2);border-color:var(--green3);">● LIVE</span>
+              </div>
+            </div>
+            <div class="log-col-header">
+              <span>TIMESTAMP</span><span>SEV</span><span>HOST</span><span>MENSAJE</span>
+            </div>
+            <div class="log-stream" id="log-stream" role="log" aria-label="Stream de eventos" aria-live="polite"></div>
+          </div>
+
+          <div class="panel-box">
+            <div class="panel-header">
+              <span class="panel-title">// Host Risk Map</span>
+              <span class="panel-tag">LIVE</span>
+            </div>
+            <div class="heatmap-grid" id="heatmap" role="grid" aria-label="Mapa de riesgo de hosts"></div>
+            <div class="heatmap-legend">
+              <span style="color:var(--green2)">■ OK</span>
+              <span style="color:var(--amber)">■ WARN</span>
+              <span style="color:var(--red)">■ HIGH</span>
+              <span style="color:var(--red);animation:cellpulse 1s ease infinite;display:inline-block">■ CRIT</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alertas activas -->
+        <div class="panel-box">
+          <div class="panel-header">
+            <span class="panel-title">// Alertas Activas</span>
+            <span class="panel-tag" id="alerts-count-tag" style="color:var(--red);border-color:rgba(255,59,59,.3)">— CRÍTICAS</span>
+          </div>
+          <div class="alerts-list" id="alerts-list" role="list" aria-label="Alertas activas"></div>
+        </div>
+
+        <!-- API Status -->
+        <div class="api-row">
+          <div class="api-box">
+            <div class="api-box-title">// API Endpoints</div>
+            <div class="endpoint-row"><span class="method-badge POST">POST</span><span class="endpoint-path">/api/v1/events/ingest</span><span class="endpoint-status ok">201</span></div>
+            <div class="endpoint-row"><span class="method-badge GET">GET</span><span class="endpoint-path">/api/v1/events/</span><span class="endpoint-status ok">200</span></div>
+            <div class="endpoint-row"><span class="method-badge GET">GET</span><span class="endpoint-path">/api/v1/alerts/active</span><span class="endpoint-status ok">200</span></div>
+            <div class="endpoint-row"><span class="method-badge POST">POST</span><span class="endpoint-path">/api/v1/auth/token</span><span class="endpoint-status ok">200</span></div>
+            <div class="endpoint-row"><span class="method-badge WS">WS</span><span class="endpoint-path">/live-feed?token=…</span><span class="endpoint-status ok" id="ws-status">OPEN</span></div>
+            <div class="endpoint-row"><span class="method-badge GET">GET</span><span class="endpoint-path">/api/v1/agents/status</span><span class="endpoint-status ok">200</span></div>
+          </div>
+
+          <div class="api-box">
+            <div class="api-box-title">// JWT · Auth</div>
+            <div class="component-row"><span class="comp-name">Algoritmo</span><span class="comp-val">RS256</span></div>
+            <div class="component-row"><span class="comp-name">Rol actual</span><span class="comp-val" id="jwt-role">—</span></div>
+            <div class="component-row"><span class="comp-name">Token expira en</span><span class="comp-val" id="jwt-countdown">—</span></div>
+            <div class="component-row"><span class="comp-name">OWASP A07</span><span class="comp-val" style="color:var(--green2)">COMPLIANT</span></div>
+            <div class="component-row"><span class="comp-name">RBAC</span><span class="comp-val" style="color:var(--green2)">ACTIVO</span></div>
+          </div>
+
+          <div class="api-box">
+            <div class="api-box-title">// Stack</div>
+            <div class="component-row"><span class="comp-name">Backend</span><span class="comp-val">FastAPI 0.111</span></div>
+            <div class="component-row"><span class="comp-name">Database</span><span class="comp-val">PostgreSQL 16</span></div>
+            <div class="component-row"><span class="comp-name">ORM</span><span class="comp-val">SQLAlchemy 2</span></div>
+            <div class="component-row"><span class="comp-name">Frontend</span><span class="comp-val">Vite + TypeScript</span></div>
+            <div class="component-row"><span class="comp-name">Deploy</span><span class="comp-val" style="color:var(--green2)">Railway + Vercel</span></div>
+          </div>
+        </div>
+
+      </div><!-- /view-dashboard -->
+
+    </main>
+  </div><!-- /shell -->
+
+  <!-- ══ STATUS BAR ══ -->
+  <footer class="statusbar" role="contentinfo">
+    <span>SIEM-CORE v1.4.2</span>
+    <span>BACKEND: <span class="green" id="sb-backend">FastAPI</span></span>
+    <span>DB: <span class="green">PostgreSQL 16</span></span>
+    <span>UPTIME: <span class="green" id="sb-uptime">—</span></span>
+    <span>WS: <span id="sb-ws" class="green">CONNECTED</span></span>
+    <span>EVENTS TODAY: <span class="green" id="sb-events">—</span></span>
+  </footer>
+  </div><!-- /app-body -->
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
