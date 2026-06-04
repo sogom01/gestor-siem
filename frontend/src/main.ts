@@ -19,7 +19,6 @@ const sparkData = {
 
 // ── DOM helpers ──────────────────────────────────────────────────────
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!
-const $$ = <T extends HTMLElement>(sel: string) => [...document.querySelectorAll<T>(sel)]
 
 function setText(sel: string, val: string) {
   const el = $(sel)
