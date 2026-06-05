@@ -1,10 +1,11 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.event import Severity
 from app.models.user import User
 from app.schemas.event import EventIn, EventOut, EventsPage
-from app.services.events import ingest_event, get_events_page, get_stats
+from app.services.events import ingest_event, get_events_page, get_stats, get_timeline
 from app.services.auth import any_role, analyst_or_admin
 from app.services.ws_manager import manager
 
@@ -36,16 +37,27 @@ async def ingest(
 @router.get("/", response_model=EventsPage)
 async def list_events(
     page: int = Query(1, ge=1),
-    size: int = Query(100, ge=1, le=500),
+    size: int = Query(50, ge=1, le=500),
     severity: Severity | None = None,
     host: str | None = None,
+    date_from: datetime | None = Query(None),
+    date_to: datetime | None = Query(None),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(any_role),
 ):
-    items, total = await get_events_page(db, page, size, severity, host)
+    items, total = await get_events_page(db, page, size, severity, host, date_from, date_to)
     return EventsPage(items=items, total=total, page=page, size=size)
 
 
 @router.get("/stats")
 async def stats(db: AsyncSession = Depends(get_db), _: User = Depends(any_role)):
     return await get_stats(db)
+
+
+@router.get("/timeline")
+async def timeline(
+    minutes: int = Query(60, ge=5, le=1440),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(any_role),
+):
+    return await get_timeline(db, minutes)

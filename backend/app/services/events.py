@@ -85,14 +85,19 @@ async def _evaluate_rules(db: AsyncSession, trigger: Event) -> None:
 
 
 async def get_events_page(
-    db: AsyncSession, page: int = 1, size: int = 100,
+    db: AsyncSession, page: int = 1, size: int = 50,
     severity: Severity | None = None, host: str | None = None,
+    date_from: datetime | None = None, date_to: datetime | None = None,
 ) -> tuple[list[Event], int]:
     query = select(Event).order_by(Event.timestamp.desc())
     if severity:
         query = query.where(Event.severity == severity)
     if host:
-        query = query.where(Event.host == host)
+        query = query.where(Event.host.ilike(f"%{host}%"))
+    if date_from:
+        query = query.where(Event.timestamp >= date_from)
+    if date_to:
+        query = query.where(Event.timestamp <= date_to)
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar_one()
@@ -100,6 +105,33 @@ async def get_events_page(
     query = query.offset((page - 1) * size).limit(size)
     result = await db.execute(query)
     return result.scalars().all(), total
+
+
+async def get_timeline(db: AsyncSession, minutes: int = 60) -> list[dict]:
+    window_start = datetime.utcnow() - timedelta(minutes=minutes)
+    result = await db.execute(
+        select(Event.timestamp, Event.severity)
+        .where(Event.timestamp >= window_start)
+        .order_by(Event.timestamp)
+    )
+    rows = result.all()
+
+    # Bucket por minuto en Python (compatible SQLite + PostgreSQL)
+    buckets: dict[int, dict] = {}
+    for ts, sev in rows:
+        minute_key = int(ts.timestamp()) // 60 * 60
+        if minute_key not in buckets:
+            buckets[minute_key] = {"ts": minute_key, "INFO": 0, "WARN": 0, "ERROR": 0, "CRIT": 0}
+        buckets[minute_key][sev.value] += 1
+
+    # Rellenar minutos vacíos en la ventana
+    now_key = int(datetime.utcnow().timestamp()) // 60 * 60
+    start_key = int(window_start.timestamp()) // 60 * 60
+    for k in range(start_key, now_key + 60, 60):
+        if k not in buckets:
+            buckets[k] = {"ts": k, "INFO": 0, "WARN": 0, "ERROR": 0, "CRIT": 0}
+
+    return sorted(buckets.values(), key=lambda x: x["ts"])
 
 
 async def get_stats(db: AsyncSession) -> dict:

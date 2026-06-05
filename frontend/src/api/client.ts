@@ -1,4 +1,4 @@
-import type { TokenResponse, EventsPage, AlertOut, AgentOut, Stats, AlertStatus } from './types'
+import type { TokenResponse, EventsPage, AlertOut, AgentOut, Stats, AlertStatus, TimelineBucket } from './types'
 
 // En prod Vercel → VITE_API_URL=https://tu-backend.railway.app
 // En dev → proxy de Vite reenvía /api al backend local
@@ -34,8 +34,14 @@ export const api = {
 
   me: () => request<{ username: string; role: string }>('/auth/me'),
 
-  events: (page = 1, size = 100) =>
-    request<EventsPage>(`/events/?page=${page}&size=${size}`),
+  events: (page = 1, size = 50, filters: { severity?: string; host?: string; date_from?: string; date_to?: string } = {}) => {
+    const p = new URLSearchParams({ page: String(page), size: String(size) })
+    if (filters.severity) p.set('severity', filters.severity)
+    if (filters.host)     p.set('host', filters.host)
+    if (filters.date_from) p.set('date_from', filters.date_from)
+    if (filters.date_to)   p.set('date_to', filters.date_to)
+    return request<EventsPage>(`/events/?${p}`)
+  },
 
   stats: () => request<Stats>('/events/stats'),
 
@@ -48,4 +54,7 @@ export const api = {
     }),
 
   agents: () => request<AgentOut[]>('/agents/status'),
+
+  timeline: (minutes = 60) =>
+    request<TimelineBucket[]>(`/events/timeline?minutes=${minutes}`),
 }

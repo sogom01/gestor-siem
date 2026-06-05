@@ -56,6 +56,14 @@ export interface Stats {
   critical_alerts_open: number
 }
 
+export interface TimelineBucket {
+  ts: number       // unix timestamp (segundos), inicio del minuto
+  INFO: number
+  WARN: number
+  ERROR: number
+  CRIT: number
+}
+
 export type WsMessage =
   | { type: 'event'; data: EventOut }
   | { type: 'alert_update'; data: { id: string; status: AlertStatus } }

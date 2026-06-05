@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="SIEM-CORE — Security Information & Event Management Dashboard">
   <title>SIEM-CORE · Security Monitor</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/src/styles/main.css">
@@ -138,6 +139,23 @@
           </div>
         </div>
 
+        <!-- Timeline D3 -->
+        <div class="panel-box timeline-panel">
+          <div class="panel-header">
+            <span class="panel-title">// Event Timeline</span>
+            <div style="display:flex;gap:.5rem;align-items:center;">
+              <span class="panel-tag" style="color:var(--green2);border-color:var(--green3);">● LIVE</span>
+              <select id="timeline-range" class="filter-select" style="min-width:auto;padding:.2rem .4rem;font-size:.65rem;">
+                <option value="60">60 min</option>
+                <option value="180">3 h</option>
+                <option value="720">12 h</option>
+                <option value="1440">24 h</option>
+              </select>
+            </div>
+          </div>
+          <div id="chart-timeline" class="chart-timeline"></div>
+        </div>
+
         <!-- Gráfico + Heatmap -->
         <div class="mid-row">
           <div class="panel-box">
@@ -210,6 +228,69 @@
         </div>
 
       </div><!-- /view-dashboard -->
+
+      <!-- ── VISTA: LOG EXPLORER ── -->
+      <div id="view-logs" class="hidden">
+        <div class="panel-box">
+          <div class="panel-header">
+            <span class="panel-title">// Log Explorer</span>
+            <span class="panel-tag" id="log-explorer-total">— eventos</span>
+          </div>
+
+          <!-- Filtros -->
+          <div class="log-filters" id="log-filters">
+            <div class="filter-group">
+              <label class="field-label" for="filter-severity">// SEVERIDAD</label>
+              <select id="filter-severity" class="filter-select">
+                <option value="">TODAS</option>
+                <option value="INFO">INFO</option>
+                <option value="WARN">WARN</option>
+                <option value="ERROR">ERROR</option>
+                <option value="CRIT">CRIT</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label class="field-label" for="filter-host">// HOST</label>
+              <input id="filter-host" class="filter-input" type="text" placeholder="Buscar host...">
+            </div>
+            <div class="filter-group">
+              <label class="field-label" for="filter-date-from">// DESDE</label>
+              <input id="filter-date-from" class="filter-input" type="datetime-local">
+            </div>
+            <div class="filter-group">
+              <label class="field-label" for="filter-date-to">// HASTA</label>
+              <input id="filter-date-to" class="filter-input" type="datetime-local">
+            </div>
+            <div class="filter-actions">
+              <button class="btn-filter-apply" id="btn-filter-apply">APLICAR</button>
+              <button class="btn-filter-reset" id="btn-filter-reset">RESET</button>
+            </div>
+          </div>
+
+          <!-- Tabla -->
+          <div class="log-table-wrap">
+            <table class="log-table" role="table" aria-label="Log Explorer">
+              <thead>
+                <tr>
+                  <th>TIMESTAMP</th>
+                  <th>SEV</th>
+                  <th>HOST</th>
+                  <th>IP ORIGEN</th>
+                  <th>MENSAJE</th>
+                </tr>
+              </thead>
+              <tbody id="log-table-body"></tbody>
+            </table>
+          </div>
+
+          <!-- Paginación -->
+          <div class="log-pagination" id="log-pagination">
+            <button class="btn-page" id="btn-page-prev" disabled>◀ ANTERIOR</button>
+            <span class="page-info" id="page-info">Página 1</span>
+            <button class="btn-page" id="btn-page-next">SIGUIENTE ▶</button>
+          </div>
+        </div>
+      </div><!-- /view-logs -->
 
     </main>
   </div><!-- /shell -->

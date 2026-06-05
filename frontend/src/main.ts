@@ -1,8 +1,9 @@
 import './styles/main.css'
 import { api } from './api/client'
-import type { AlertOut, AgentOut, EventOut, WsMessage } from './api/types'
+import type { AlertOut, AgentOut, EventOut, WsMessage, TimelineBucket } from './api/types'
 import { utcClock, timeAgo, formatSeconds } from './utils/time'
 import { createWsConnection } from './utils/ws'
+import { initTimeline, updateTimeline, pushTimelineEvent } from './charts/timeline'
 
 // ── State ────────────────────────────────────────────────────────────
 let token = sessionStorage.getItem('siem_token') ?? ''
@@ -10,6 +11,17 @@ let jwtExpiresIn = 0
 let uptimeSeconds = 0
 let wsDisconnect: (() => void) | null = null
 let logTotal = 0
+
+// Timeline state
+let timelineData: TimelineBucket[] = []
+let timelineMinutes = 60
+
+// Log Explorer state
+let explorerPage = 1
+const explorerSize = 50
+let explorerTotal = 0
+let explorerFilters: { severity?: string; host?: string; date_from?: string; date_to?: string } = {}
+
 const sparkData = {
   events: Array<number>(20).fill(0),
   alerts: Array<number>(20).fill(0),
@@ -24,6 +36,24 @@ function setText(sel: string, val: string) {
   const el = $(sel)
   if (el) el.textContent = val
 }
+
+// ── Navegación entre vistas ──────────────────────────────────────────
+const VIEWS = ['dashboard', 'logs'] as const
+type View = typeof VIEWS[number]
+
+function switchView(view: View) {
+  document.querySelectorAll<HTMLElement>('[id^="view-"]').forEach(el => el.classList.add('hidden'))
+  document.querySelectorAll<HTMLButtonElement>('.nav-item').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.view === view)
+    btn.setAttribute('aria-current', btn.dataset.view === view ? 'page' : 'false')
+  })
+  $(`#view-${view}`).classList.remove('hidden')
+  if (view === 'logs') loadExplorer()
+}
+
+document.querySelectorAll<HTMLButtonElement>('.nav-item[data-view]').forEach(btn => {
+  btn.addEventListener('click', () => switchView(btn.dataset.view as View))
+})
 
 // ── Login ────────────────────────────────────────────────────────────
 $('#login-form').addEventListener('submit', async (e) => {
@@ -76,9 +106,16 @@ async function boot() {
   startClock()
   startUptime()
   startJwtCountdown()
+  initTimeline($('#chart-timeline'))
   await loadAll()
   startPolling()
   connectWs()
+
+  // Selector de rango del timeline
+  $<HTMLSelectElement>('#timeline-range').addEventListener('change', (e) => {
+    timelineMinutes = Number((e.target as HTMLSelectElement).value)
+    loadTimeline()
+  })
 }
 
 // ── Reloj UTC ─────────────────────────────────────────────────────────
@@ -114,7 +151,14 @@ function startJwtCountdown() {
 
 // ── Carga inicial de datos ────────────────────────────────────────────
 async function loadAll() {
-  await Promise.allSettled([loadStats(), loadAlerts(), loadAgents(), loadEvents()])
+  await Promise.allSettled([loadStats(), loadAlerts(), loadAgents(), loadEvents(), loadTimeline()])
+}
+
+async function loadTimeline() {
+  try {
+    timelineData = await api.timeline(timelineMinutes)
+    updateTimeline(timelineData)
+  } catch { /* silencio */ }
 }
 
 // ── Stats ─────────────────────────────────────────────────────────────
@@ -286,6 +330,11 @@ function connectWs() {
       appendLog(msg.data, true)
       pushSpark(sparkData.events, logTotal)
       renderSparkline('#spark-events', sparkData.events)
+      // Actualizar timeline incrementalmente solo en ventana de 60 min
+      if (timelineMinutes === 60) {
+        timelineData = pushTimelineEvent(timelineData, msg.data.severity)
+        updateTimeline(timelineData)
+      }
     }
     if (msg.type === 'alert_update') {
       loadAlerts()
@@ -299,6 +348,7 @@ function startPolling() {
   setInterval(loadStats, 10_000)
   setInterval(loadAlerts, 15_000)
   setInterval(loadAgents, 20_000)
+  setInterval(loadTimeline, 60_000)
 }
 
 // ── Sparklines ────────────────────────────────────────────────────────
@@ -319,6 +369,87 @@ function renderSparkline(sel: string, data: number[]) {
     container.appendChild(bar)
   }
 }
+
+// ── Log Explorer ─────────────────────────────────────────────────────
+async function loadExplorer() {
+  const tbody = $<HTMLTableSectionElement>('#log-table-body')
+  tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Cargando...</td></tr>'
+
+  try {
+    const page = await api.events(explorerPage, explorerSize, explorerFilters)
+    explorerTotal = page.total
+    renderExplorerTable(page.items)
+    renderExplorerPagination()
+    setText('#log-explorer-total', `${explorerTotal.toLocaleString()} eventos`)
+  } catch {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">Error al cargar eventos</td></tr>'
+  }
+}
+
+function renderExplorerTable(items: EventOut[]) {
+  const tbody = $<HTMLTableSectionElement>('#log-table-body')
+  tbody.innerHTML = ''
+
+  if (!items.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">// Sin eventos para los filtros aplicados</td></tr>'
+    return
+  }
+
+  for (const ev of items) {
+    const ts = new Date(ev.timestamp).toLocaleString('es', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    })
+    const tr = document.createElement('tr')
+    tr.innerHTML = `
+      <td class="col-ts">${escHtml(ts)}</td>
+      <td class="sev-${escHtml(ev.severity)}">${escHtml(ev.severity)}</td>
+      <td>${escHtml(ev.host)}</td>
+      <td class="col-ip">${escHtml(ev.source_ip ?? '—')}</td>
+      <td class="col-msg" title="${escHtml(ev.message)}">${escHtml(ev.message)}</td>
+    `
+    tbody.appendChild(tr)
+  }
+}
+
+function renderExplorerPagination() {
+  const totalPages = Math.max(1, Math.ceil(explorerTotal / explorerSize))
+  setText('#page-info', `Página ${explorerPage} / ${totalPages}`)
+  $<HTMLButtonElement>('#btn-page-prev').disabled = explorerPage <= 1
+  $<HTMLButtonElement>('#btn-page-next').disabled = explorerPage >= totalPages
+}
+
+// Filtros
+$('#btn-filter-apply').addEventListener('click', () => {
+  explorerPage = 1
+  explorerFilters = {
+    severity: $<HTMLSelectElement>('#filter-severity').value || undefined,
+    host: $<HTMLInputElement>('#filter-host').value.trim() || undefined,
+    date_from: $<HTMLInputElement>('#filter-date-from').value
+      ? new Date($<HTMLInputElement>('#filter-date-from').value).toISOString() : undefined,
+    date_to: $<HTMLInputElement>('#filter-date-to').value
+      ? new Date($<HTMLInputElement>('#filter-date-to').value).toISOString() : undefined,
+  }
+  loadExplorer()
+})
+
+$('#btn-filter-reset').addEventListener('click', () => {
+  explorerPage = 1
+  explorerFilters = {}
+  $<HTMLSelectElement>('#filter-severity').value = ''
+  $<HTMLInputElement>('#filter-host').value = ''
+  $<HTMLInputElement>('#filter-date-from').value = ''
+  $<HTMLInputElement>('#filter-date-to').value = ''
+  loadExplorer()
+})
+
+$('#btn-page-prev').addEventListener('click', () => {
+  if (explorerPage > 1) { explorerPage--; loadExplorer() }
+})
+
+$('#btn-page-next').addEventListener('click', () => {
+  if (explorerPage < Math.ceil(explorerTotal / explorerSize)) { explorerPage++; loadExplorer() }
+})
 
 // ── XSS: escapar HTML ────────────────────────────────────────────────
 function escHtml(str: string): string {

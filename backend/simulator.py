@@ -1,15 +1,28 @@
 """
 SIEM Event Simulator
 Bombea eventos realistas al backend para demostrar el dashboard en accion.
-Uso: python simulator.py [--url http://localhost:8000] [--rate 2]
+
+Uso local:
+  python simulator.py
+
+Uso remoto (Railway):
+  python simulator.py --remote
+  python simulator.py --url https://gestor-siem-production.up.railway.app
+
+Variable de entorno:
+  SIEM_API_URL=https://... python simulator.py
 """
 import asyncio
 import random
 import argparse
 import sys
 import os
+import time
 from datetime import datetime, timezone
 import httpx
+
+RAILWAY_URL = "https://gestor-siem-production.up.railway.app"
+DEFAULT_URL  = os.environ.get("SIEM_API_URL", "http://127.0.0.1:8000")
 
 # Activar colores ANSI en Windows
 if sys.platform == "win32":
@@ -128,23 +141,45 @@ def build_message(template: str, scenario: dict | None = None) -> str:
     return result
 
 
-async def login(client: httpx.AsyncClient, base_url: str) -> str:
-    resp = await client.post(f"{base_url}/api/v1/auth/token",
-                             json={"username": "admin", "password": "Admin1234!"})
-    resp.raise_for_status()
-    print(colorize("OK", f"[SIM] Login OK — JWT RS256 obtenido"))
-    return resp.json()["access_token"]
+class TokenManager:
+    """Gestiona el JWT y renueva automáticamente cuando expira."""
+
+    def __init__(self, client: httpx.AsyncClient, base_url: str, username: str, password: str):
+        self._client   = client
+        self._base_url = base_url
+        self._username = username
+        self._password = password
+        self._token    = ""
+        self._expires  = 0.0
+
+    async def get(self) -> str:
+        if time.monotonic() >= self._expires - 30:
+            await self._refresh()
+        return self._token
+
+    async def _refresh(self) -> None:
+        resp = await self._client.post(
+            f"{self._base_url}/api/v1/auth/token",
+            json={"username": self._username, "password": self._password},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        self._token   = data["access_token"]
+        self._expires = time.monotonic() + data.get("expires_in", 3600)
+        print(colorize("OK", f"[SIM] Login OK — JWT renovado (expira en {data.get('expires_in', 3600)}s)"))
 
 
-async def send_event(client: httpx.AsyncClient, base_url: str, token: str,
+async def send_event(client: httpx.AsyncClient, base_url: str, token_mgr: TokenManager,
                      sev: str, host: str, msg: str, ip: str | None = None) -> bool:
     try:
+        token = await token_mgr.get()
         resp = await client.post(
             f"{base_url}/api/v1/events/ingest",
             headers={"Authorization": f"Bearer {token}"},
             json={"severity": sev, "host": host, "message": msg,
                   "source_ip": ip or f"10.0.1.{random.randint(1,254)}"},
-            timeout=5.0,
+            timeout=8.0,
         )
         return resp.status_code == 201
     except Exception:
@@ -152,14 +187,14 @@ async def send_event(client: httpx.AsyncClient, base_url: str, token: str,
 
 
 async def run_normal_stream(client: httpx.AsyncClient, base_url: str,
-                            token: str, rate: float, stop: asyncio.Event):
+                            token_mgr: TokenManager, rate: float, stop: asyncio.Event):
     """Genera eventos normales continuamente."""
     interval = 1.0 / rate
     sent = 0
     while not stop.is_set():
         sev, tmpl, host = random.choice(NORMAL_EVENTS)
         msg = build_message(tmpl)
-        ok = await send_event(client, base_url, token, sev, host, msg)
+        ok = await send_event(client, base_url, token_mgr, sev, host, msg)
         if ok:
             sent += 1
             print(fmt_event(sev, host, msg))
@@ -168,7 +203,7 @@ async def run_normal_stream(client: httpx.AsyncClient, base_url: str,
 
 
 async def run_attack(client: httpx.AsyncClient, base_url: str,
-                     token: str, name: str):
+                     token_mgr: TokenManager, name: str):
     """Dispara un escenario de ataque."""
     scenario = ATTACK_SCENARIOS[name]
     label = scenario["label"]
@@ -179,7 +214,7 @@ async def run_attack(client: httpx.AsyncClient, base_url: str,
         sev, tmpl, host = random.choice(scenario["events"])
         ip = random.choice(scenario["ips"])
         msg = build_message(tmpl, scenario)
-        await send_event(client, base_url, token, sev, host, msg, ip)
+        await send_event(client, base_url, token_mgr, sev, host, msg, ip)
         print(fmt_event(sev, host, msg))
         await asyncio.sleep(random.uniform(0.15, 0.4))
 
@@ -187,7 +222,7 @@ async def run_attack(client: httpx.AsyncClient, base_url: str,
 
 
 async def attack_scheduler(client: httpx.AsyncClient, base_url: str,
-                            token: str, stop: asyncio.Event):
+                            token_mgr: TokenManager, stop: asyncio.Event):
     """Lanza ataques aleatorios cada 20-40 segundos."""
     names = list(ATTACK_SCENARIOS.keys())
     while not stop.is_set():
@@ -198,11 +233,11 @@ async def attack_scheduler(client: httpx.AsyncClient, base_url: str,
         except asyncio.TimeoutError:
             pass
         if not stop.is_set():
-            await run_attack(client, base_url, token, random.choice(names))
+            await run_attack(client, base_url, token_mgr, random.choice(names))
 
 
 async def stats_reporter(client: httpx.AsyncClient, base_url: str,
-                         token: str, stop: asyncio.Event):
+                         token_mgr: TokenManager, stop: asyncio.Event):
     """Imprime stats cada 15 segundos."""
     while not stop.is_set():
         try:
@@ -212,6 +247,7 @@ async def stats_reporter(client: httpx.AsyncClient, base_url: str,
         if stop.is_set():
             break
         try:
+            token = await token_mgr.get()
             resp = await client.get(
                 f"{base_url}/api/v1/events/stats",
                 headers={"Authorization": f"Bearer {token}"},
@@ -229,34 +265,41 @@ async def stats_reporter(client: httpx.AsyncClient, base_url: str,
 
 async def main():
     parser = argparse.ArgumentParser(description="SIEM Event Simulator")
-    parser.add_argument("--url",  default="http://127.0.0.1:8000", help="Backend URL")
-    parser.add_argument("--rate", type=float, default=2.0, help="Eventos/segundo (normal stream)")
-    parser.add_argument("--attack-only", action="store_true", help="Solo lanzar ataques, sin stream normal")
+    parser.add_argument("--url",         default=DEFAULT_URL,  help="Backend URL base")
+    parser.add_argument("--remote",      action="store_true",  help=f"Usar Railway ({RAILWAY_URL})")
+    parser.add_argument("--rate",        type=float, default=2.0, help="Eventos/segundo (normal stream)")
+    parser.add_argument("--user",        default="admin",      help="Usuario para login")
+    parser.add_argument("--password",    default="Admin1234!", help="Contraseña para login")
+    parser.add_argument("--attack-only", action="store_true",  help="Solo lanzar ataques, sin stream normal")
     args = parser.parse_args()
 
+    base_url = RAILWAY_URL if args.remote else args.url
+
     print(colorize("OK", "=========================================="))
-    print(colorize("OK", "     SIEM EVENT SIMULATOR v1.0            "))
-    print(colorize("OK", f"  Backend: {args.url}"))
+    print(colorize("OK", "     SIEM EVENT SIMULATOR v2.0            "))
+    print(colorize("OK", f"  Backend: {base_url}"))
     print(colorize("OK", f"  Rate: {args.rate} ev/s  | Ctrl+C para detener"))
+    print(colorize("OK", f"  Modo: {'REMOTO (Railway)' if args.remote else 'LOCAL'}"))
     print(colorize("OK", "==========================================\n"))
 
     stop = asyncio.Event()
 
     async with httpx.AsyncClient() as client:
+        token_mgr = TokenManager(client, base_url, args.user, args.password)
         try:
-            token = await login(client, args.url)
+            await token_mgr.get()
         except Exception as e:
             print(colorize("CRIT", f"[SIM] ERROR de login: {e}"))
             sys.exit(1)
 
         tasks = [
-            asyncio.create_task(attack_scheduler(client, args.url, token, stop)),
-            asyncio.create_task(stats_reporter(client, args.url, token, stop)),
+            asyncio.create_task(attack_scheduler(client, base_url, token_mgr, stop)),
+            asyncio.create_task(stats_reporter(client, base_url, token_mgr, stop)),
         ]
 
         if not args.attack_only:
             tasks.append(asyncio.create_task(
-                run_normal_stream(client, args.url, token, args.rate, stop)
+                run_normal_stream(client, base_url, token_mgr, args.rate, stop)
             ))
 
         print(colorize("OK", "[SIM] Simulacion iniciada. Ctrl+C para detener.\n"))
